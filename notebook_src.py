@@ -88,7 +88,7 @@ _arrow(ax, (5.5, 2.45), (5.5, 2.1))
 for y in (5.15, 3.65, 2.15, 0.7):
     _arrow(ax, (10.8, 3.5), (11.6, y))
 ax.text(7, 6.05, "PALIMPSEST — identified counterfactual explanations for load forecasting", ha="center", fontsize=12, weight="bold")
-_plt.tight_layout(); _plt.show()
+_plt.tight_layout(); _plt.savefig("fig_pipeline.png", dpi=130, bbox_inches="tight"); _plt.show()
 
 # %%
 # ---------------------------------------------------------------------------
@@ -1179,7 +1179,7 @@ SUMA
 # static example.
 
 # %%
-def explain(date, dT=0.0, alert=None, project=True, show=True):
+def explain(date, dT=0.0, alert=None, project=True, show=True, save=None):
     tab, info = ENGINE.run(date, dT=dT, alert=alert, project=project)
     an, dist = ENGINE.analogs(info["cf_weather"], date)
     tot = tab[["d_thermal", "d_behavioral", "d_residual"]].sum()
@@ -1207,8 +1207,14 @@ def explain(date, dT=0.0, alert=None, project=True, show=True):
         ax[2].plot(h, ENGINE.hist.loc[w.index, "dew"], color=PAL["observed"], linestyle=":", label="observed dew")
         ax[2].plot(h, w["dew"].values, color=PAL["identified"], linestyle=":", label="projected dew")
         ax[2].set_title("Plausible input projection (°C)"); ax[2].legend(frameon=False, fontsize=8); ax[2].set_xlabel("hour")
-        plt.tight_layout(); plt.show()
+        plt.tight_layout()
+        if save: plt.savefig(save, bbox_inches="tight")
+        plt.show()
     return tab, info, an
+
+# one saved static example (goes into the results zip); the widget below is for live exploration
+_tab, _info, _an = explain(demo_day, dT=3.0, alert=1, save=OUT / "fig_interactive_example.png")
+_tab.round(1).to_csv(OUT / "counterfactual_example_hourly.csv")
 
 try:
     import ipywidgets as widgets
@@ -1239,4 +1245,92 @@ if TRUE:
     print("  window-average true alert effect (%% of load): %+.2f" % HO["truth"].mean())
 with open(OUT / "results.json", "w") as f:
     json.dump(RESULTS, f, indent=2, default=str)
-print("\nSaved:", sorted(p.name for p in OUT.iterdir()))
+
+# %% [markdown]
+# ## 15. Package everything into one downloadable zip
+#
+# `palimpsest_results.zip` contains every figure, the pipeline diagram, the technology photographs (with credits),
+# all result tables as CSV, `results.json`, the fitted parameters, and a README describing the run.
+
+# %%
+import shutil, zipfile
+TAB = OUT / "tables"; IMG = OUT / "images"; TAB.mkdir(exist_ok=True); IMG.mkdir(exist_ok=True)
+
+# --- tables
+ACC.to_csv(TAB / "A_forecast_accuracy_holdout.csv")
+SUMB.to_csv(TAB / "B_flex_alert_holdout_summary.csv"); HO.to_csv(TAB / "B_flex_alert_holdout_per_day.csv")
+E_alert.to_csv(TAB / "B_flex_alert_training_did_matrix.csv"); E_ho.to_csv(TAB / "B_flex_alert_holdout_did_matrix.csv")
+SUMC.to_csv(TAB / "C_covid_holdout.csv"); SUMD.to_csv(TAB / "D_low_carbon_london.csv")
+SUMA.to_csv(TAB / "E_analog_agreement_by_dT.csv"); AN.to_csv(TAB / "E_analog_agreement_samples.csv", index=False)
+pd.DataFrame({"hour": range(24), "beta_alert_identified": beta_alert, "beta_alert_ablation": beta_alert_naive,
+              **{f"beta_covid_identified_daytype{d}": beta_covid[d] for d in range(3)}}).to_csv(TAB / "behavioral_coefficients.csv", index=False)
+pd.DataFrame([dict(zip(PNAMES, THERMAL_P), fit="identified"), dict(zip(PNAMES, THERMAL_P_NAIVE), fit="ablation")]).to_csv(TAB / "thermal_parameters.csv", index=False)
+daily.to_csv(TAB / "daily_features.csv")
+pd.Series(FLEX_ALERT_DATES, name="flex_alert_date").to_csv(TAB / "flex_alert_dates.csv", index=False)
+# --- pipeline diagram (drawn before OUT existed)
+if Path("fig_pipeline.png").exists(): shutil.move("fig_pipeline.png", OUT / "fig_pipeline.png")
+# --- technology photographs + credits
+PHOTOS = [
+    ("transmission_tower.jpg", "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Electrical_power_tower.jpg/960px-Electrical_power_tower.jpg", "Dennis Schroeder / NREL, public domain, Wikimedia Commons"),
+    ("ercot_grid_operator.jpg", "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/ERCOTOperator_2.jpg/960px-ERCOTOperator_2.jpg", "Dpysh w, CC BY 3.0, Wikimedia Commons"),
+    ("ac_condenser.jpg", "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Condenser_unit_for_central_air_conditioning.JPG/960px-Condenser_unit_for_central_air_conditioning.JPG", "H Padleckas, CC BY-SA 3.0, Wikimedia Commons"),
+    ("asos_weather_station.jpg", "https://upload.wikimedia.org/wikipedia/commons/2/2d/ASOS_Weather_station_being_installed.jpg", "Aviation Expert I, CC BY-SA 4.0, Wikimedia Commons"),
+    ("smart_meter_itron_openway.jpg", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Itron_OpenWay_Electricity_Meter_with_Two-Way_Communications.JPG/960px-Itron_OpenWay_Electricity_Meter_with_Two-Way_Communications.JPG", "Dwight Burdette, CC BY 3.0, Wikimedia Commons"),
+]
+credits = ["# Image credits\n"]
+for fname, url, credit in PHOTOS:
+    try:
+        p = download(url, IMG / fname, retries=2, timeout=60)
+        time.sleep(3)   # be polite to Wikimedia's rate limiter
+    except Exception:
+        p = None
+    credits.append(f"- {fname}: {credit} — {url}" + ("" if p else "  (not downloaded: no internet)"))
+(IMG / "CREDITS.md").write_text("\n".join(credits))
+# --- README for the bundle
+readme = f"""# PALIMPSEST results bundle
+Run date: {pd.Timestamp.now():%Y-%m-%d %H:%M}
+Data mode: balancing authority = {DATA_MODE}, Low Carbon London = {LCL_MODE}
+Balancing authority: {CFG['BA']}   years: {CFG['YEARS'][0]}–{CFG['YEARS'][-1]}   accuracy holdout from {CFG['HOLDOUT_START']}
+Flex Alert holdout: alert days after {CFG['FLEX_HOLDOUT_AFTER_YEAR']} ({len(HO)} days)
+
+## Contents
+fig_pipeline.png                     pipeline / architecture diagram
+fig_thermal.png                      thermal layer fit and residual by hour
+fig_behavioral.png                   identified vs ablation behavioral coefficients (+ ground truth if synthetic)
+fig_central_flex_alert_holdout.png   CENTRAL FIGURE: implied vs observed appeal effect on held-out Flex Alert days
+fig_covid_holdout.png                lockdown holdout weekday profiles
+fig_lcl.png                          Low Carbon London ToU response and weather dependence
+fig_interactive_example.png          example counterfactual (+3 C with appeal) with decomposition and analogs
+counterfactual_example_hourly.csv    hourly table behind that example
+results.json                         all headline metrics
+tables/                              every result table as CSV (A–E), coefficients, parameters, daily features
+images/                              technology photographs used in the notebook header, with CREDITS.md
+
+## Headline numbers
+[A] accuracy
+{ACC.to_string()}
+
+[B] Flex Alert interventional holdout
+{SUMB.to_string()}
+
+[C] COVID holdout
+{SUMC.to_string()}
+
+[D] Low Carbon London
+{SUMD.to_string()}
+"""
+(OUT / "README.md").write_text(readme)
+# --- zip
+ZIP = WORK / "palimpsest_results.zip"
+with zipfile.ZipFile(ZIP, "w", zipfile.ZIP_DEFLATED) as z:
+    for p in sorted(OUT.rglob("*")):
+        if p.is_file(): z.write(p, p.relative_to(OUT))
+names = sorted(p.relative_to(OUT).as_posix() for p in OUT.rglob("*") if p.is_file())
+print(f"{ZIP}  ({ZIP.stat().st_size/1e6:.1f} MB, {len(names)} files)")
+print("\n".join("  " + n for n in names))
+try:
+    from IPython.display import FileLink, display
+    display(FileLink(str(ZIP.relative_to(Path.cwd())) if ZIP.is_relative_to(Path.cwd()) else str(ZIP)))
+except Exception:
+    pass
+print("\nOn Kaggle: the zip is also listed under the notebook's Output tab after you Save & Run All.")
