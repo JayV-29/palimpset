@@ -1,0 +1,13 @@
+{
+  "id": "REPLACE_WITH_KAGGLE_USERNAME/palimpsest-identified-counterfactual-load-forecasting",
+  "title": "PALIMPSEST: Identified Counterfactual Load Forecasting",
+  "code_file": "palimpsest.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["jeanmidev/smart-meters-in-london"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
